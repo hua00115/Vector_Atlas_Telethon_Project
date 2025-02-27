@@ -1,0 +1,7 @@
+Study_ID	Study name [OBI_0001622]
+2014-MAP-Asia	Malaria Atlas Project: Global distribution of observed malaria vector species (Asia)
+2016-laurent-cow	Cow-baited tents are highly effective in sampling diverse Anopheles malaria vectors in Cambodia
+2018-St-Laurent-Halmahera	Host attraction and biting behaviour of Anopheles mosquitoes in South Halmahera, Indonesia
+2018-St-Laurent-Indonesia	Comparative evaluation of anopheline sampling methods in three localities in Indonesia
+2021-kobylinski-anopheles	Anopheles bionomics in a malaria endemic area of southern Thailand
+IRbase15190519	Insecticide susceptibility of Anopheles dirus in Assam
