@@ -1,0 +1,48 @@
+---
+title: "x_tab() summary"
+author: "Hua"
+format: html
+editor: visual
+---
+
+# !!! This is an extension of the previous data pre-processing steps and highlights. Please ensure that you have run all the code chunks from the VectorAtlas-Hua.qmd file, or that you have saved the variables in your environment.
+
+\
+\
+\
+
+## Variables used to identify distinct occurrences:
+
+```{r}
+colnames(ref_data1) # All variables were used for comparison in the format: !(%in%), except "sources".
+```
+
+## Different combined data indicating the number of distinct occurrences gradually added from each source
+
+```{r}
+nrow(ref_data1) # Cleaned data from Malaria Atlas in R
+nrow(ref_data1_3a) # Cleaned combined data from Malaria Atlas in R and RGBIF
+nrow(ref_data1_3a_3b) # Cleaned combined data from Malaria Atlas in R, RGBIF, and GBIF Website
+nrow(ref_data1_3a_3b_4) # Cleaned combined data from all sources
+```
+
+## To view the number of occurrences slowly added from the newly cleaned data source:
+
+```{r}
+xtabs(~species,data=ref_data1) # refer to original Malaria Atlas in R (Ref dataset)
+xtabs(~species,data=ref_data1_3a) # refer to Combined-1,3a. in Excel table
+xtabs(~species,data=ref_data1_3a_3b) # refer to Combined-1,3a,3b. in Excel table
+xtabs(~species,data=ref_data1_3a_3b_4) # refer to Combined-1,3a,3b,4 "Total". in Excel table
+```
+
+## This indicates the number of occurrences for each recorded species, referring to the total number of occurrences in the complete combined data set
+
+```{r}
+xtabs(~species, data=ref_data1_3a_3b_4) # from complete data
+```
+
+## This indicates the number of distinct occurrences extracted from each source, as referenced in the vRef column of the Excel table
+
+```{r}
+xtabs(~species+sources, data=ref_data1_3a_3b_4) # from complete data
+```
