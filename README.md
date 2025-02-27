@@ -1,2 +1,5 @@
-# Vector_Atlas_Telethon_Project
- This project focuses on creating a map visualisation of the spatial distribution of vector species, with a focus on the Asian continent
+# Vector Atlas Project 
+Tan Pei Hua (Hua)
+
+## Overview
+This project aims to understand the structure of a spatial dataset from various sources and develop a detailed methodology to clean, filter, and combine the data. Ultimately, the goal is to create a comprehensive map visualisation of the spatial distribution of vector species, with a primary focus on the Asian continent. The visualisation is generated using a combination of species occurrence data from multiple sources, including the Malaria Atlas R package, GBIF (Global Biodiversity Information Facility), and VectorBase.
