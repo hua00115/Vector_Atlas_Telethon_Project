@@ -1,0 +1,762 @@
+---
+title: "Preprocessing Highlight from various sources, with focus in ASIA"
+author: "Hua"
+format: html
+editor: visual
+---
+
+# Aim: Pre-processing highlights from various sources, with a focus on Asia
+
+## Sources:
+
+-   Malaria Atlas in R
+-   RGBIF
+-   GBIF Website
+-   VectorBase Website
+
+## Family: Leucosphyrus complex & Dirus complex
+
+-   Anopheles leucosphyrus
+-   Anopheles latens
+-   Anopheles introlatus
+-   Anopheles balabacensis
+-   Anopheles baisasi
+-   Anopheles dirus
+-   Anopheles cracens
+-   Anopheles scanloni
+-   Anopheles baimaii
+-   Anopheles elegans
+
+## Required libraries
+
+```{r}
+library(malariaAtlas)
+library(dplyr)
+library(RSQLite)
+library(DBI)
+library(sf)
+library(rnaturalearth)
+library(stringr)
+library(rgbif)
+library(readr)
+
+
+```
+
+\
+\
+\
+\
+
+# Part 1: Understanding the structure of each dataset and filtering important attributes.
+
+\
+
+# First source: Malaria Atlas in R
+
+## Data extraction:
+
+```{r}
+library(malariaAtlas)
+
+# Technically I should only extract the data from ASIA, but I was just trying to get as many data in the first place.
+# Africa
+vectors_africa <- getVecOcc(continent = "Africa")
+
+# Asia
+vectors_asia <- getVecOcc(continent = "Asia")
+
+# Europe
+vectors_europe <- getVecOcc(continent = "Europe")
+
+# Americas
+vectors_americas <- getVecOcc(continent = "Americas")
+
+# Oceania
+vectors_oceania <- getVecOcc(continent = "Oceania")
+
+
+data_1 <- rbind(vectors_africa, vectors_asia, vectors_europe, vectors_americas, vectors_oceania) #28770 
+```
+
+## Data filter & Selection
+
+```{r}
+# select important attributes 
+data_1.1<-dplyr::select (data_1, site_id, species_plain, species, country,continent_id, latitude, longitude,time_start,sample_method1,geometry) # We could include unique_id (id) to identify individual sample with similar attributes
+
+
+
+# To check the available species in the data
+unique_species <- unique(data_1.1$species_plain)
+print(unique_species)
+
+
+
+# Function to check the number of occurences in each species
+count_words <- function(data, column_name, words) {
+  
+  # Count occurrences for each word
+  counts <- sapply(words, function(word) {
+    sum(grepl(word, data[[column_name]], ignore.case = TRUE))
+  })
+  
+  # Return a named vector of counts
+  names(counts) <- words
+  return(counts)
+}
+
+# Species to check
+words_to_check <- c("Anopheles leucosphyrus", "Anopheles latens", "Anopheles introlatus", "Anopheles balabacensis", "Anopheles baisasi", "Anopheles dirus","Anopheles cracens", "Anopheles scanloni", "Anopheles baimaii", "Anopheles elegans")
+
+word_counts_1 <- count_words(data_1.1, "species_plain", words_to_check)
+print(word_counts_1)
+
+
+
+# Filter selected species
+data_1.2<-data_1.1 %>%
+  filter(species_plain %in% c("Anopheles leucosphyrus", "Anopheles balabacensis", "Anopheles dirus")) 
+
+head(data_1.2)
+nrow(data_1.2) #858
+
+```
+
+## Data Modification & Standardisation highlights:
+
+1)  Added source and complex
+2)  Round latitude, longitude, and geometry for standardisation purpose
+3)  Investigate rows with NAs.
+
+```{r}
+# 1) Added sources & complex for back tracking purpose
+data_1.2$complex <- ifelse(
+    grepl("leucosphyrus|introlatus|balabacensis", data_1.2$species_plain, ignore.case = TRUE), 
+    "leucosphyrus",
+    ifelse(
+        grepl("dirus|cracens|scanloni|baimaii|elegans", data_1.2$species_plain, ignore.case = TRUE),
+        "dirus",
+        NA
+    )
+)
+data_1.2$sources<- "MalariaAtlasinR"
+
+
+
+# 2) Round latitude, longitude, and geometry to 2 decimal places
+round_coordinates <- function(geom) {
+    coords <- st_coordinates(geom)  
+    coords <- round(coords, 2)      
+    st_point(coords)                
+}
+
+data_1_clean <- data_1.2 %>%
+  mutate(
+    latitude = round(latitude, 2), 
+    longitude = round(longitude, 2),
+    geometry = st_sfc(lapply(geometry, round_coordinates), crs = st_crs(data_1.2))
+  )
+
+# 3) To investigate any rows with NAs
+rows_with_na_1 <- data_1_clean[apply(data_1_clean, 1, function(x) any(is.na(x))), ]
+#There are 150 rows with NAs, all in time_start. However, we will keep them for data integrity. This is because all data from VectorBase do not contain time or date, so we will not remove NAs from other sources either.
+
+# To visualise clean data
+head(data_1_clean)
+```
+
+## Map Visualisation
+
+```{r}
+#| echo: false
+world <- ne_countries(scale = "medium", returnclass = "sf")
+ 
+ # Plot the base map and overlay your points
+ggplot() +
+    geom_sf(data = world, fill = "gray90", color = "white") + # Base map
+    geom_sf(data = data_1_clean, aes(color = species_plain)) +      # Overlay points
+    theme_minimal() +
+    labs(color = "Species") + xlim(75, 120) + ylim(-10, 30) + labs(title = "Spatial Distribution from MalariaAtlas_in_R",x = "Longitude", y = "Latitude")
+```
+
+## Summary:
+
+\- Only 3 species available
+
+\- 858 data recorded
+
+\- 150 rows contain NAs - all in time_start. We could view the rows with NAs by print(rows_with_na_1)
+
+\
+\
+\
+\
+
+# Second source: RGBIF
+
+## Data extraction:
+
+-   We will not include Anopheles latens (do not have latitude & longitude) and Anopheles Baisasi (no record found)
+
+```{r}
+# Search for Anopheles leucosphyrus complex occurrences in RGBIF
+leucosphyrus_data <- occ_search(
+    scientificName = "Anopheles leucosphyrus"
+    
+)
+
+latens_data <- occ_search(
+    scientificName = "Anopheles latens"
+    
+)
+
+introlatus_data <- occ_search(
+    scientificName = "Anopheles introlatus"
+    
+)
+
+balabacensis_data <- occ_search(
+    scientificName = "Anopheles balabacensis"
+    
+)
+
+baisasi_data <- occ_search(
+    scientificName = "Anopheles baisasi"
+    
+)
+
+
+# Search for Anopheles dirus complex occurrences in RGBIF
+dirus_data <- occ_search(
+    scientificName = "Anopheles dirus" 
+)
+
+cracens_data <- occ_search(
+    scientificName = "Anopheles cracens"
+    
+)
+
+scanloni_data <- occ_search(
+    scientificName = "Anopheles scanloni"
+    
+)
+
+baimaii_data <- occ_search(
+    scientificName = "Anopheles baimaii"
+    
+)
+
+elegans_data <- occ_search(
+    scientificName = "Anopheles elegans"
+    
+)
+
+# Leucosphyrus complex
+leucosphyrus_data_3a<-leucosphyrus_data$data
+latens_data_3a<-latens_data$data #Columns `decimalLatitude`, `decimalLongitude`, and `geodeticDatum` don't exist.
+introlatus_data_3a<-introlatus_data$data 
+balabacensis_data_3a<-balabacensis_data$data
+baisasi_data_3a<-baisasi_data$data # no record found
+
+# Dirus complex
+dirus_data_3a<-dirus_data$data
+cracens_data_3a<-cracens_data$data
+scanloni_data_3a<-scanloni_data$data
+baimaii_data_3a<-baimaii_data$data
+elegans_data_3a<-elegans_data$data
+
+```
+
+## Data filter & Selection
+
+```{r}
+# Function to extract specific attributes
+extract_and_clean_2 <- function(data) {
+    extracted_data_3 <- dplyr::select(data,scientificName, acceptedScientificName, occurrenceStatus, kingdom, phylum, order, family, species, country, continent, decimalLatitude, decimalLongitude, eventDate)
+    
+    return(extracted_data_3)
+}
+
+leucosphyrus_data_3a<-extract_and_clean_2(leucosphyrus_data_3a)
+introlatus_data_3a<-extract_and_clean_2(introlatus_data_3a)
+balabacensis_data_3a<-extract_and_clean_2(balabacensis_data_3a)
+dirus_data_3a<-extract_and_clean_2(dirus_data_3a)
+cracens_data_3a<-extract_and_clean_2(cracens_data_3a)
+scanloni_data_3a<-extract_and_clean_2(scanloni_data_3a)
+baimaii_data_3a<-extract_and_clean_2(baimaii_data_3a)
+elegans_data_3a<-extract_and_clean_2(elegans_data_3a)
+
+data_3a<-rbind(leucosphyrus_data_3a,introlatus_data_3a, balabacensis_data_3a, dirus_data_3a, cracens_data_3a,scanloni_data_3a,baimaii_data_3a, elegans_data_3a )
+
+data_3a
+nrow(data_3a) #1603
+```
+
+## Data Modification & Standardisation highlights:
+
+1)  Added source and complex
+2)  Added continent for Indonesia and China
+3)  Rounded latitude, and longitude for standardisation purpose
+4)  Removed rows with missing latitude/ longitude (main priority)
+5)  Date Standardisation
+6)  Investigate rows with NAs.
+
+```{r}
+# 1) Added sources & complex for back tracking purpose
+data_3a$sources<- "Rgbif"
+
+data_3a$complex <- ifelse(
+    grepl("leucosphyrus|introlatus|balabacensis", data_3a$species, ignore.case = TRUE), 
+    "leucosphyrus",
+    ifelse(
+        grepl("dirus|cracens|scanloni|baimaii|elegans", data_3a$species, ignore.case = TRUE),
+        "dirus",
+        NA
+    )
+)
+
+# 2) Added continent for Indonesia and China as they were NAs in the first place.
+data_3a$continent[(data_3a$country == "Indonesia" | data_3a$country == "China") & is.na(data_3a$continent)] <- "ASIA"
+
+# 3) Rounded latitude, and longitude to 2 decimal places.
+data_3a <- data_3a %>%
+    mutate(
+        decimalLatitude = round(decimalLatitude, 2),
+        decimalLongitude = round(decimalLongitude, 2)
+    )
+
+# 4) remove rows with missing latitude/ longitude
+data_3a.1<- data_3a %>%
+    filter(!is.na(decimalLatitude) | !is.na(decimalLongitude))  
+nrow(data_3a.1) # 1216 rows remaining
+
+# 5) Date standadisation (There are three different categories: YYYY/MM/DD, YYYY/MM/DD / YYYY/MM/DD, YYYY/MM, YYYY)
+data_3a.2 <- data_3a.1 %>%
+    mutate(
+        time_start = case_when(
+            # Handle YYYY-MM format (add "01" as the day) - taking reference from MalariaAtlasinR as all of its' date start from 01.
+            str_detect(eventDate, "^\\d{4}-\\d{2}$") ~ paste0(eventDate, "-01"),
+            
+            # Handle YYYY-MM-DD format (keep as is)
+            str_detect(eventDate, "^\\d{4}-\\d{2}-\\d{2}$") ~ eventDate,
+            
+            # Handle date ranges (extract the start date)
+            str_detect(eventDate, "/") ~ str_extract(eventDate, "^[^/]+"),
+            
+            # Handle any other cases (set to NA)
+            TRUE ~ NA
+        )
+    )  # Again. We do not remove rows with NAs in date to ensure the intergrity. (Vectorbase)
+data_3a.3 <- data_3a.2 %>% dplyr::select(-eventDate) # Because we have timestart.
+
+# 6) To investigate any rows with NAs
+rows_with_na_3a <- data_3a.3[apply(data_3a.3, 1, function(x) any(is.na(x))), ] # 58 rows in NAs. All in time_start.
+
+
+
+# Reused the function to check the number of occurences in each species
+word_counts_3a <- count_words(data_3a.3, "species", words_to_check)
+print(word_counts_3a)
+
+#Convert into sf data.
+data_3a_clean <- st_as_sf(data_3a.3, coords = c("decimalLongitude", "decimalLatitude"), crs = 4326)
+
+# To visualise cleaned data
+data_3a_clean # 1216 data
+
+
+```
+
+## Map Visualisation
+
+```{r}
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+ggplot() +
+    geom_sf(data = world, fill = "gray90", color = "white") + # Base map
+    geom_sf(data = data_3a_clean, aes(color = species)) +      # Overlay points
+    theme_minimal() +
+    labs(color = "Species") + xlim(75, 120) + ylim(-10, 30) + labs(title = "Spatial Distribution from RGBIF",x = "Longitude", y = "Latitude")
+```
+
+## Summary:
+
+\- Anopheles latens do not have latitude& longitude
+
+\- Anopheles baisasi doesn't exists
+
+\- Only 8 species available
+
+\- Indonesia & China contained Na for continent
+
+\- 1216 data recorded
+
+\- Date standardised to the same format
+
+\- 58 rows contain NAs - all in time_start. We could view the rows with NAs by print(rows_with_na_3a)
+
+\
+\
+\
+\
+
+# Third source: GBIF Website
+
+Data extraction:
+
+```{r}
+# Please download the required file from the GBIF website
+data_3b <- read.delim("gbif_extracted_dataset.csv", stringsAsFactors = FALSE) # may not be up to date
+
+# View the first few rows
+summary(data_3b)
+nrow(data_3b) #1224
+colnames(data_3b)
+```
+
+## Data filter & Selection
+
+```{r}
+# Select important attributes
+data_3b.1<-  dplyr::select (data_3b,scientificName,species,occurrenceStatus, kingdom,phylum,order, family,species,countryCode,decimalLatitude,decimalLongitude, eventDate)
+```
+
+## Data Modification & Stadardisation
+
+1.  Added source, and complex
+2.  Added continent attribute (did not have continent)
+3.  Transformed country code into full name
+4.  Removed rows with NAs in latitude and longitude (main priority)
+5.  Date Standardisation
+6.  Round latitude and longitude into 2 decimal places
+
+```{r}
+# 1 & 2) Added sources, complex and continent
+data_3b.1$sources<-"Gbif"
+data_3b.1$continent<-"ASIA"
+
+data_3b.1$complex <- ifelse(
+    grepl("leucosphyrus|introlatus|balabacensis", data_3b.1$species, ignore.case = TRUE), 
+    "leucosphyrus",
+    ifelse(
+        grepl("dirus|cracens|scanloni|baimaii|elegans", data_3b.1$species, ignore.case = TRUE),
+        "dirus",
+        NA
+    )
+)
+
+# 3) Transform country code
+data_3b.2 <- data_3b.1 %>%
+    mutate(country = recode(countryCode,
+                            "TH" = "Thailand",
+                            "IN" = "India",
+                            "ID" = "Indonesia",
+                            "VN" = "Vietnam",
+                            "KH" = "Cambodia",
+                            "MY" = "Malaysia"
+    ),continent = "ASIA"
+    ) %>%
+    dplyr::select(-countryCode)  # Remove the old column
+
+# 4) Remove rows with missing latitude & longitude
+data_3b.3<- data_3b.2 %>%
+    filter(!is.na(decimalLatitude) | !is.na(decimalLongitude))  # 1224 - did not remove any rows
+
+# 5) Similar date standardisation
+data_3b.4 <- data_3b.3 %>%
+    mutate(
+        time_start = case_when(
+            # Handle YYYY-MM format (add "01" as the day)
+            str_detect(eventDate, "^\\d{4}-\\d{2}$") ~ paste0(eventDate, "-01"),
+            
+            # Handle YYYY-MM-DD format (keep as is)
+            str_detect(eventDate, "^\\d{4}-\\d{2}-\\d{2}$") ~ eventDate,
+            
+            # Handle date ranges (extract the start date)
+            str_detect(eventDate, "/") ~ str_extract(eventDate, "^[^/]+"),
+            
+            # Handle any other cases (set to NA)
+            TRUE ~ NA
+        )
+    )
+data_3b.5 <- data_3b.4 %>% dplyr::select(-eventDate) # Because we have time_start.
+
+# 6) Round the latitude and longitude
+data_3b.6 <- data_3b.5 %>%
+    mutate(
+        decimalLatitude = round(decimalLatitude, 2),
+        decimalLongitude = round(decimalLongitude, 2)
+    )
+
+# 7) Investigate rows with NAs
+rows_with_na_3b <- data_3b.6[apply(data_3b.6, 1, function(x) any(is.na(x))), ] # 66 rows in NAs - all in time_start.
+
+# Convert into sf data
+data_3b_clean <- st_as_sf(data_3b.6, coords = c("decimalLongitude", "decimalLatitude"), crs = 4326) #1224
+
+# reuse the function to count the number of occurences in each species
+word_counts_3b <- count_words(data_3b_clean, "species", words_to_check)
+print(word_counts_3b)
+
+#To read the clean data
+data_3b_clean
+```
+
+## Map Visualisation
+
+```{r}
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+ggplot() +
+    geom_sf(data = world, fill = "gray90", color = "white") + # Base map
+    geom_sf(data = data_3b_clean, aes(color = species)) +      # Overlay points
+    theme_minimal() +
+    labs(color = "Species") + xlim(75, 120) + ylim(-10, 30) + labs(title = "Spatial Distribution from GBIF",x = "Longitude", y = "Latitude")
+
+```
+
+## Summary:
+
+-   Only 8 species recorded
+-   Changed Country Code to full name.
+-   Added Continent attribute (Was not there originally)
+-   No missing geometry data
+-   Date standardised to the same format
+-   1224 data recorded
+-   66 rows contain NAs - all in time_start. We could view the rows with NAs by print(rows_with_na_3b)
+
+\
+\
+\
+\
+
+# Fourth source: VectorBase Website
+
+## Data extraction:
+
+```{r}
+# Please download the required dataset from VectorBase
+collection_site <- read.table("Collection_sites.txt", header = TRUE, sep = "\t",fill = TRUE)
+samples <- read.table("Samples.txt", header = TRUE, sep = "\t",fill = TRUE)
+studies <- read.table("Studies.txt", header = TRUE, sep = "\t",fill = TRUE)
+
+
+# connect relational database
+site_samples <- merge(collection_site, samples, by = "Collection_site_ID", all = TRUE)
+site_samples <- site_samples %>%
+    dplyr::select(-Study_ID.x) 
+colnames(site_samples)[colnames(site_samples) == "Study_ID.y"] <- "Study_ID"
+site_samples_studies<- merge(site_samples, studies, by = "Study_ID", all = TRUE)
+
+head(site_samples_studies)
+nrow(site_samples_studies) #1293
+colnames(site_samples_studies)
+```
+
+## Data filter & Selection
+
+```{r}
+data_4_1 <- site_samples_studies %>% 
+    dplyr::select(Study.name..OBI_0001622.,species..OBI_0001909.,Sample.type..EUPATH_0000611.,protocol..OBI_0000272.,Latitude..OBI_0001620.,Longitude..OBI_0001621.,country..OBI_0001627.,continent..GAZ_00000013.)
+
+```
+
+## Data Modification & Standardisation
+
+1.  Added time_start and sources attribute
+2.  Rounded latitude and longitude into 2 decimal places
+3.  Investigate rows with NAs - All rows contain NAs in time_start.
+
+```{r}
+
+# 1) Added time_start and sources 
+data_4_1$time_start=NA
+data_4_1$sources<-"Vectorbase"
+
+# 2) Rounded latitude and longitude to 2 decimal places
+data_4_2 <- data_4_1 %>%
+    mutate(
+        Latitude..OBI_0001620. = round(Latitude..OBI_0001620., 2),
+        Longitude..OBI_0001621. = round(Longitude..OBI_0001621., 2)
+    )
+
+# 3) Investigate rows with NAs
+rows_with_na_4 <- data_4_2[apply(data_4_2, 1, function(x) any(is.na(x))), ] # All rows contain NAs bcs of time_start
+
+word_counts_4 <- count_words(data_4_2, "species..OBI_0001909.", words_to_check)
+print(word_counts_4)
+
+# Convert into sf data
+data_4_clean <- st_as_sf(data_4_2, coords = c("Longitude..OBI_0001621.", "Latitude..OBI_0001620."), crs = 4326)
+data_4_clean
+```
+
+## Map Visualisation
+
+```{r}
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+ggplot() +
+    geom_sf(data = world, fill = "gray90", color = "white") + # Base map
+    geom_sf(data = data_4_clean, aes(color = species..OBI_0001909.)) +      # Overlay points
+    theme_minimal() +
+    labs(color = "Species") + xlim(75, 120) + ylim(-10, 30) + labs(title = "Spatial Distribution from Vectorbase",x = "Longitude", y = "Latitude")
+
+```
+
+Summary:
+
+-   Only 4 species available
+-   No missing geometry data
+-   Do not have time_start (Was not there originally)
+-   1293 rows of data recorded
+
+\
+\
+\
+\
+\
+
+# Part 2 : Merging data with common attributes
+
+\
+
+## 1) Select common attributes from the cleaned data
+
+```{r}
+ref_data1 <- data_1_clean %>%
+  dplyr::select(species_plain, country, continent_id, time_start, geometry,sources) %>%
+  rename(species = species_plain, continent = continent_id) %>% # rename
+  mutate(continent = toupper(continent),  # Convert continent to uppercase
+         time_start = as.Date(time_start)) 
+
+ref_data3a<-data_3a_clean%>%
+  dplyr::select(species, geometry, country,continent, time_start, geometry,sources) %>%
+  mutate (time_start = as.Date(time_start))
+
+ref_data3b <-data_3b_clean%>%
+  dplyr::select(species, country,continent,time_start, geometry,sources) %>%
+  mutate (time_start = as.Date(time_start))
+
+ref_data4<-data_4_clean%>%
+  dplyr::select(species..OBI_0001909.,country..OBI_0001627.,continent..GAZ_00000013.,time_start,geometry,sources)%>% rename(species = species..OBI_0001909.,country=country..OBI_0001627.,continent=continent..GAZ_00000013.)%>%
+    mutate(continent = toupper(continent))
+```
+
+\
+
+## 2) Identify the non-matching rows between ref_data1 and ref_data3a - Data not in ref_data1 but in ref_data3a
+
+```{r}
+#Extract the data in ref_data3a but not in ref_data1, by using common attributes as reference
+non_matching_rows_1_3a <- ref_data3a[!(ref_data3a$species %in% ref_data1$species  & ref_data3a$country %in% ref_data1$country& ref_data3a$continent %in% ref_data1$continent& ref_data3a$time_start %in% ref_data1$time_start& ref_data3a$geometry %in% ref_data1$geometry), ]  # 1210 rows found in ref_data3a but not in ref_data1
+
+# reused the function to count the number of occurences in each species
+word_counts_1_3a <- count_words(non_matching_rows_1_3a, "species", words_to_check)
+print(word_counts_1_3a)
+
+# combined the non_matching_rows with ref_data1, and reviewed the updated dataset
+ref_data1_3a <- bind_rows(ref_data1, non_matching_rows_1_3a) # 2068
+nrow(ref_data1_3a)
+
+# reused the function to count the number of occurences in each species
+combined_1_3a <- count_words(ref_data1_3a, "species", words_to_check)
+print(combined_1_3a)
+
+
+# now with the similar ideal, repeat the steps for ref_data3b, and ref_data4, but remember to replace with updated combined data
+non_matching_rows_1_3a_3b <- ref_data3b[!(ref_data3b$species %in% ref_data1_3a$species  & ref_data3b$country %in% ref_data1_3a$country& ref_data3b$continent %in% ref_data1_3a$continent& ref_data3b$time_start %in% ref_data1_3a$time_start& ref_data3b$geometry %in% ref_data1_3a$geometry), ]
+
+ref_data1_3a_3b<- bind_rows(ref_data1_3a,non_matching_rows_1_3a_3b) #2137
+
+# reused the function to count the number of occurences in each species
+checking_data_1_3a_3b <- count_words(ref_data1_3a_3b, "species", words_to_check)
+print(checking_data_1_3a_3b)
+nrow(ref_data1_3a_3b)
+
+
+non_matching_rows_1_3a_3b_4 <- ref_data4[!(ref_data4$species %in% ref_data1_3a_3b$species  & ref_data4$country %in% ref_data1_3a_3b$country& ref_data4$continent %in% ref_data1_3a_3b$continent& ref_data4$geometry %in% ref_data1_3a_3b$geometry), ]
+
+# We turned it to character to merge with data from VectorBase (NAs in date)
+ref_data1_3a_3b$time_start = as.character(ref_data1_3a_3b$time_start)
+ref_data1_3a_3b_4<- bind_rows(ref_data1_3a_3b,non_matching_rows_1_3a_3b_4) #2228
+
+checking_data_1_3a_3b_4 <- count_words(ref_data1_3a_3b_4, "species", words_to_check)
+# Print the count
+print(checking_data_1_3a_3b_4)
+nrow(ref_data1_3a_3b_4)
+
+# To view the merge data
+ref_data1_3a_3b_4
+
+
+# To extract rows with NAs
+non_spatial_data <- st_drop_geometry(ref_data1_3a_3b_4)
+rows_with_na_complete_data <- non_spatial_data[apply(non_spatial_data, 1, function(x) any(is.na(x))), ]
+nrow(rows_with_na_complete_data) #336 - All NAs are in time_start
+```
+
+\
+
+## 3) Map Visualisation
+
+```{r}
+world <- ne_countries(scale = "medium", returnclass = "sf")
+
+ggplot() +
+    geom_sf(data = world, fill = "gray90", color = "white") + # Base map
+    geom_sf(data = ref_data1_3a_3b_4, aes(color = species)) +      # Overlay points
+    theme_minimal() +
+    labs(color = "Species") + xlim(75, 120) + ylim(-10, 30) + labs(title = "Spatial Distribution from Combined_data",x = "Longitude", y = "Latitude")
+
+
+```
+
+\
+
+## Simple Visualisation
+
+```{r}
+## To visual number of species in the data set
+species_count <- ref_data1_3a_3b_4 %>%
+    group_by(species) %>%
+    summarise(count = n()) %>%
+    arrange(desc(count))
+
+# Create a histogram or bar plot of species counts
+ggplot(species_count, aes(x = reorder(species, -count), y = count)) +
+    geom_bar(stat = "identity") +
+    labs(x = "Species", y = "Numbers of Species", title = "Numbers of different Species ") +
+         theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+
+## To visual number of occurrences in each country
+country_count <- ref_data1_3a_3b_4 %>%
+    group_by(country) %>%
+    summarise(count = n()) %>%
+    arrange(desc(count))
+
+# Create a histogram or bar plot of species counts
+ggplot(country_count, aes(x = reorder(country, -count), y = count)) +
+    geom_bar(stat = "identity") +
+    labs(x = "Country", y = "Numbers of Total Species", title = "Numbers of total species in each country") +
+         theme(axis.text.x = element_text(angle = 90, hjust = 1))
+
+
+
+
+## To plot sf object over raster data
+raster_data <- getRaster(dataset_id = "Malaria__202206_Global_Pf_Incidence_Rate")
+print(raster_data)
+raster_df <- as.data.frame(raster_data, xy = TRUE)
+
+ggplot() + 
+        geom_raster(data = raster_df, aes(x = x, y = y, fill = `Number of newly diagnosed Plasmodium falciparum cases per 1,000 population, on a given year 2000-2020`)) +  
+        geom_sf(data = ref_data1_3a_3b_4, fill = NA, aes(color = species), size = 1) +  
+        scale_fill_viridis_c(option = "magma") +  
+        theme_minimal() +
+        labs(title = "Diagnosed Plasmodium falciparum cases(,000) from 2000-2020", x = "Longitude", y = "Latitude", fill = "Elevation")
+```
