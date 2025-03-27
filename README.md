@@ -7,15 +7,16 @@ This project aims to understand the structure of spatial datasets from various s
 
 
 ## Table of contents
-1. Project Guide
+1. Setup
 2. Data Sources
 3. Data Cleaning Structure
 4. Visualisation
-5. Discussion
 
 
-## Project Guide
-
+## Setup
+1. R studio
+2. R libraries for vector data
+3. Spatial dataset from four sources
 
 
 
